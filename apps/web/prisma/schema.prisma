@@ -1,0 +1,169 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(uuid())
+  publicId     String    @unique @map("public_id")
+  username     String    @unique
+  email        String    @unique
+  passwordHash String?   @map("password_hash")
+  avatarUrl    String?   @map("avatar_url")
+  fontSize     String    @default("medium") @map("font_size")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  sentFriendRequests     Friendship[]    @relation("Requester")
+  receivedFriendRequests Friendship[]    @relation("Addressee")
+  groupMemberships       GroupMember[]
+  sentMessages           Message[]       @relation("SenderMessages")
+  receivedMessages       Message[]       @relation("RecipientMessages")
+  pinnedMessages         PinnedMessage[]
+  stats                  UserStats?
+  notifications          Notification[]
+  createdGroups          Group[]
+  aiSessions             AiSession[]
+
+  @@map("users")
+}
+
+model Friendship {
+  id          String   @id @default(uuid())
+  requesterId String   @map("requester_id")
+  addresseeId String   @map("addressee_id")
+  status      String   @default("pending")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  requester User @relation("Requester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee User @relation("Addressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, addresseeId])
+  @@map("friendships")
+}
+
+model Group {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  avatarUrl   String?  @map("avatar_url")
+  isPublic    Boolean  @default(true) @map("is_public")
+  createdById String   @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  createdBy      User            @relation(fields: [createdById], references: [id])
+  members        GroupMember[]
+  messages       Message[]
+  pinnedMessages PinnedMessage[]
+
+  @@map("groups")
+}
+
+model GroupMember {
+  id       String   @id @default(uuid())
+  groupId  String   @map("group_id")
+  userId   String   @map("user_id")
+  role     String   @default("member")
+  joinedAt DateTime @default(now()) @map("joined_at")
+
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([groupId, userId])
+  @@map("group_members")
+}
+
+model Message {
+  id          String    @id @default(uuid())
+  groupId     String?   @map("group_id")
+  senderId    String?   @map("sender_id")
+  senderType  String    @map("sender_type")
+  chatType    String    @map("chat_type")
+  recipientId String?   @map("recipient_id")
+  content     String
+  aiModel     String?   @map("ai_model")
+  aiPromptRef String?   @map("ai_prompt_ref")
+  tokenCount  Int?      @map("token_count")
+  mentions    Json      @default("[]")
+  isDeleted   Boolean   @default(false) @map("is_deleted")
+  editedAt    DateTime? @map("edited_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  // For AI session messages
+  aiSessionId String?    @map("ai_session_id")
+  aiSession   AiSession? @relation(fields: [aiSessionId], references: [id], onDelete: Cascade)
+
+  group     Group?          @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  sender    User?           @relation("SenderMessages", fields: [senderId], references: [id], onDelete: SetNull)
+  recipient User?           @relation("RecipientMessages", fields: [recipientId], references: [id], onDelete: Cascade)
+  pinnedIn  PinnedMessage[]
+
+  @@index([groupId])
+  @@index([createdAt(sort: Desc)])
+  @@index([senderId])
+  @@index([aiSessionId])
+  @@map("messages")
+}
+
+// Private AI Chat sessions
+model AiSession {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  provider  String   // 'gemini' | 'chatgpt'
+  title     String   @default("Chat baru")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@index([userId])
+  @@map("ai_sessions")
+}
+
+model PinnedMessage {
+  id        String   @id @default(uuid())
+  groupId   String   @map("group_id")
+  messageId String   @map("message_id")
+  pinnedBy  String   @map("pinned_by")
+  pinnedAt  DateTime @default(now()) @map("pinned_at")
+
+  group   Group   @relation(fields: [groupId], references: [id], onDelete: Cascade)
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  pinner  User    @relation(fields: [pinnedBy], references: [id])
+
+  @@unique([groupId, messageId])
+  @@map("pinned_messages")
+}
+
+model UserStats {
+  userId              String   @id @map("user_id")
+  totalAiInteractions Int      @default(0) @map("total_ai_interactions")
+  totalMessages       Int      @default(0) @map("total_messages")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_stats")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  type      String
+  payload   Json
+  isRead    Boolean  @default(false) @map("is_read")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, isRead])
+  @@map("notifications")
+}
